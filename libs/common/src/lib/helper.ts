@@ -1,5 +1,6 @@
 import * as currencies from '@dinero.js/currencies';
 import { DataSource } from '@prisma/client';
+import Big from 'big.js';
 import { getDate, getMonth, getYear, parse, subDays } from 'date-fns';
 import { de, es, fr, it, nl, pt } from 'date-fns/locale';
 
@@ -59,8 +60,12 @@ export function extractNumberFromString(aString: string): number {
   }
 }
 
-export function getAverage(aArray: number[]) {
-  return aArray.reduce((a, b) => a + b, 0) / aArray.length;
+export function getAverage(aArray: Big[]) {
+  if (aArray?.length > 0) {
+    return aArray.reduce((a, b) => a.plus(b), new Big(0)).div(aArray.length);
+  }
+
+  return new Big(0);
 }
 
 export function getBackgroundColor(aColorScheme: ColorScheme) {
