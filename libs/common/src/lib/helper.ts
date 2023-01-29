@@ -59,6 +59,10 @@ export function extractNumberFromString(aString: string): number {
   }
 }
 
+export function getAverage(aArray: number[]) {
+  return aArray.reduce((a, b) => a + b, 0) / aArray.length;
+}
+
 export function getBackgroundColor(aColorScheme: ColorScheme) {
   return getCssVariable(
     aColorScheme === 'DARK' ||
