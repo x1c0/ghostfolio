@@ -234,5 +234,6 @@ enum Type {
   BUY
   DIVIDEND
   ITEM
+  LIABILITY
   SELL
 }
