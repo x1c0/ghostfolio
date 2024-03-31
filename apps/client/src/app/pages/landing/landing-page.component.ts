@@ -1,7 +1,8 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
 import { DataService } from '@ghostfolio/client/services/data.service';
-import { Statistics } from '@ghostfolio/common/interfaces/statistics.interface';
+import { Statistics } from '@ghostfolio/common/interfaces';
 import { hasPermission, permissions } from '@ghostfolio/common/permissions';
+
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { format } from 'date-fns';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { Subject } from 'rxjs';
@@ -22,6 +23,8 @@ export class LandingPageComponent implements OnDestroy, OnInit {
   public hasPermissionForStatistics: boolean;
   public hasPermissionForSubscription: boolean;
   public hasPermissionToCreateUser: boolean;
+  public routerLinkAbout = ['/' + $localize`about`];
+  public routerLinkRegister = ['/' + $localize`register`];
   public statistics: Statistics;
   public testimonials = [
     {
@@ -59,6 +62,19 @@ export class LandingPageComponent implements OnDestroy, OnInit {
       country: 'Germany 🇩🇪',
       quote:
         'Super slim app with a great user interface. On top of that, it’s open source.'
+    },
+    {
+      author: 'Sal',
+      country: 'Canada 🇨🇦',
+      quote:
+        'Ghostfolio is one of the best tools I have used for tracking my investments. I intend to spread the word to all my friends.'
+    },
+    {
+      author: 'Thomas',
+      country: 'Creator of Ghostfolio, Switzerland 🇨🇭',
+      quote:
+        'My investment strategy has become more structured through the daily use of Ghostfolio.',
+      url: 'https://dotsilver.ch'
     }
   ];
 

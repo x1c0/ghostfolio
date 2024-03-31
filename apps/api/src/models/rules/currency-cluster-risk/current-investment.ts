@@ -1,17 +1,20 @@
 import { RuleSettings } from '@ghostfolio/api/models/interfaces/rule-settings.interface';
-import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data.service';
+import { Rule } from '@ghostfolio/api/models/rule';
+import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
 import { TimelinePosition, UserSettings } from '@ghostfolio/common/interfaces';
 
-import { Rule } from '../../rule';
-
 export class CurrencyClusterRiskCurrentInvestment extends Rule<Settings> {
+  private positions: TimelinePosition[];
+
   public constructor(
     protected exchangeRateDataService: ExchangeRateDataService,
-    private positions: TimelinePosition[]
+    positions: TimelinePosition[]
   ) {
     super(exchangeRateDataService, {
-      name: 'Current Investment'
+      name: 'Investment'
     });
+
+    this.positions = positions;
   }
 
   public evaluate(ruleSettings: Settings) {
@@ -34,7 +37,7 @@ export class CurrencyClusterRiskCurrentInvestment extends Rule<Settings> {
       }
     });
 
-    const maxValueRatio = maxItem.value / totalValue;
+    const maxValueRatio = maxItem?.value / totalValue || 0;
 
     if (maxValueRatio > ruleSettings.threshold) {
       return {
@@ -49,7 +52,7 @@ export class CurrencyClusterRiskCurrentInvestment extends Rule<Settings> {
 
     return {
       evaluation: `The major part of your current investment is in ${
-        maxItem.groupKey
+        maxItem?.groupKey ?? ruleSettings.baseCurrency
       } (${(maxValueRatio * 100).toPrecision(3)}%) and does not exceed ${
         ruleSettings.threshold * 100
       }%`,

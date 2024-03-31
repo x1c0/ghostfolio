@@ -1,12 +1,10 @@
-import { ConfigurationService } from '@ghostfolio/api/services/configuration.service';
-import { PrismaService } from '@ghostfolio/api/services/prisma.service';
-import {
-  DEFAULT_LANGUAGE_CODE,
-  PROPERTY_STRIPE_CONFIG
-} from '@ghostfolio/common/config';
-import { Subscription as SubscriptionInterface } from '@ghostfolio/common/interfaces/subscription.interface';
-import { UserWithSettings } from '@ghostfolio/common/types';
+import { ConfigurationService } from '@ghostfolio/api/services/configuration/configuration.service';
+import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
+import { DEFAULT_LANGUAGE_CODE } from '@ghostfolio/common/config';
+import { parseDate } from '@ghostfolio/common/helper';
+import { SubscriptionOffer, UserWithSettings } from '@ghostfolio/common/types';
 import { SubscriptionType } from '@ghostfolio/common/types/subscription-type.type';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { Subscription } from '@prisma/client';
 import { addMilliseconds, isBefore } from 'date-fns';
@@ -97,23 +95,11 @@ export class SubscriptionService {
 
   public async createSubscriptionViaStripe(aCheckoutSessionId: string) {
     try {
-      const session = await this.stripe.checkout.sessions.retrieve(
-        aCheckoutSessionId
-      );
-
-      let subscriptions: SubscriptionInterface[] = [];
-
-      const stripeConfig = (await this.prismaService.property.findUnique({
-        where: { key: PROPERTY_STRIPE_CONFIG }
-      })) ?? { value: '{}' };
-
-      subscriptions = [JSON.parse(stripeConfig.value)];
-
-      const coupon = subscriptions[0]?.coupon ?? 0;
-      const price = subscriptions[0]?.price ?? 0;
+      const session =
+        await this.stripe.checkout.sessions.retrieve(aCheckoutSessionId);
 
       await this.createSubscription({
-        price: price - coupon,
+        price: session.amount_total / 100,
         userId: session.client_reference_id
       });
 
@@ -123,18 +109,28 @@ export class SubscriptionService {
     }
   }
 
-  public getSubscription(
-    aSubscriptions: Subscription[]
-  ): UserWithSettings['subscription'] {
-    if (aSubscriptions.length > 0) {
-      const latestSubscription = aSubscriptions.reduce((a, b) => {
+  public getSubscription({
+    createdAt,
+    subscriptions
+  }: {
+    createdAt: UserWithSettings['createdAt'];
+    subscriptions: Subscription[];
+  }): UserWithSettings['subscription'] {
+    if (subscriptions.length > 0) {
+      const { expiresAt, price } = subscriptions.reduce((a, b) => {
         return new Date(a.expiresAt) > new Date(b.expiresAt) ? a : b;
       });
 
+      let offer: SubscriptionOffer = price ? 'renewal' : 'default';
+
+      if (isBefore(createdAt, parseDate('2023-01-01'))) {
+        offer = 'renewal-early-bird';
+      }
+
       return {
-        expiresAt: latestSubscription.expiresAt,
-        offer: latestSubscription.price === 0 ? 'default' : 'renewal',
-        type: isBefore(new Date(), latestSubscription.expiresAt)
+        expiresAt,
+        offer,
+        type: isBefore(new Date(), expiresAt)
           ? SubscriptionType.Premium
           : SubscriptionType.Basic
       };

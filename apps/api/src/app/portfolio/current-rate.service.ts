@@ -1,47 +1,55 @@
+import { OrderService } from '@ghostfolio/api/app/order/order.service';
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
-import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data.service';
-import { MarketDataService } from '@ghostfolio/api/services/market-data.service';
+import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
 import { resetHours } from '@ghostfolio/common/helper';
-import { DataProviderInfo } from '@ghostfolio/common/interfaces';
-import { Injectable } from '@nestjs/common';
+import {
+  DataProviderInfo,
+  ResponseError,
+  UniqueAsset
+} from '@ghostfolio/common/interfaces';
+import type { RequestWithUser } from '@ghostfolio/common/types';
+
+import { Inject, Injectable } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
 import { isBefore, isToday } from 'date-fns';
-import { flatten } from 'lodash';
+import { flatten, isEmpty, uniqBy } from 'lodash';
 
 import { GetValueObject } from './interfaces/get-value-object.interface';
+import { GetValuesObject } from './interfaces/get-values-object.interface';
 import { GetValuesParams } from './interfaces/get-values-params.interface';
 
 @Injectable()
 export class CurrentRateService {
   public constructor(
     private readonly dataProviderService: DataProviderService,
-    private readonly exchangeRateDataService: ExchangeRateDataService,
-    private readonly marketDataService: MarketDataService
+    private readonly marketDataService: MarketDataService,
+    private readonly orderService: OrderService,
+    @Inject(REQUEST) private readonly request: RequestWithUser
   ) {}
 
+  // TODO: Pass user instead of using this.request.user
   public async getValues({
-    currencies,
     dataGatheringItems,
-    dateQuery,
-    userCurrency
-  }: GetValuesParams): Promise<{
-    dataProviderInfos: DataProviderInfo[];
-    values: GetValueObject[];
-  }> {
+    dateQuery
+  }: GetValuesParams): Promise<GetValuesObject> {
     const dataProviderInfos: DataProviderInfo[] = [];
-    const includeToday =
+
+    const includesToday =
       (!dateQuery.lt || isBefore(new Date(), dateQuery.lt)) &&
       (!dateQuery.gte || isBefore(dateQuery.gte, new Date())) &&
       (!dateQuery.in || this.containsToday(dateQuery.in));
 
     const promises: Promise<GetValueObject[]>[] = [];
+    const quoteErrors: ResponseError['errors'] = [];
+    const today = resetHours(new Date());
 
-    if (includeToday) {
-      const today = resetHours(new Date());
+    if (includesToday) {
       promises.push(
         this.dataProviderService
-          .getQuotes(dataGatheringItems)
+          .getQuotes({ items: dataGatheringItems, user: this.request?.user })
           .then((dataResultProvider) => {
             const result: GetValueObject[] = [];
+
             for (const dataGatheringItem of dataGatheringItems) {
               if (
                 dataResultProvider?.[dataGatheringItem.symbol]?.dataProviderInfo
@@ -51,53 +59,108 @@ export class CurrentRateService {
                 );
               }
 
-              result.push({
-                date: today,
-                marketPriceInBaseCurrency:
-                  this.exchangeRateDataService.toCurrency(
-                    dataResultProvider?.[dataGatheringItem.symbol]
-                      ?.marketPrice ?? 0,
-                    dataResultProvider?.[dataGatheringItem.symbol]?.currency,
-                    userCurrency
-                  ),
-                symbol: dataGatheringItem.symbol
-              });
+              if (dataResultProvider?.[dataGatheringItem.symbol]?.marketPrice) {
+                result.push({
+                  dataSource: dataGatheringItem.dataSource,
+                  date: today,
+                  marketPrice:
+                    dataResultProvider?.[dataGatheringItem.symbol]?.marketPrice,
+                  symbol: dataGatheringItem.symbol
+                });
+              } else {
+                quoteErrors.push({
+                  dataSource: dataGatheringItem.dataSource,
+                  symbol: dataGatheringItem.symbol
+                });
+              }
             }
+
             return result;
           })
       );
     }
 
-    const symbols = dataGatheringItems.map((dataGatheringItem) => {
-      return dataGatheringItem.symbol;
-    });
+    const uniqueAssets: UniqueAsset[] = dataGatheringItems.map(
+      ({ dataSource, symbol }) => {
+        return { dataSource, symbol };
+      }
+    );
 
     promises.push(
       this.marketDataService
         .getRange({
           dateQuery,
-          symbols
+          uniqueAssets
         })
         .then((data) => {
-          return data.map((marketDataItem) => {
+          return data.map(({ dataSource, date, marketPrice, symbol }) => {
             return {
-              date: marketDataItem.date,
-              marketPriceInBaseCurrency:
-                this.exchangeRateDataService.toCurrency(
-                  marketDataItem.marketPrice,
-                  currencies[marketDataItem.symbol],
-                  userCurrency
-                ),
-              symbol: marketDataItem.symbol
+              dataSource,
+              date,
+              marketPrice,
+              symbol
             };
           });
         })
     );
 
-    return {
+    const values = flatten(await Promise.all(promises));
+
+    const response: GetValuesObject = {
       dataProviderInfos,
-      values: flatten(await Promise.all(promises))
+      errors: quoteErrors.map(({ dataSource, symbol }) => {
+        return { dataSource, symbol };
+      }),
+      values: uniqBy(values, ({ date, symbol }) => `${date}-${symbol}`)
     };
+
+    if (!isEmpty(quoteErrors)) {
+      for (const { dataSource, symbol } of quoteErrors) {
+        try {
+          // If missing quote, fallback to the latest available historical market price
+          let value: GetValueObject = response.values.find((currentValue) => {
+            return currentValue.symbol === symbol && isToday(currentValue.date);
+          });
+
+          if (!value) {
+            // Fallback to unit price of latest activity
+            const latestActivity = await this.orderService.getLatestOrder({
+              dataSource,
+              symbol
+            });
+
+            value = {
+              dataSource,
+              symbol,
+              date: today,
+              marketPrice: latestActivity?.unitPrice ?? 0
+            };
+
+            response.values.push(value);
+          }
+
+          const [latestValue] = response.values
+            .filter((currentValue) => {
+              return currentValue.symbol === symbol && currentValue.marketPrice;
+            })
+            .sort((a, b) => {
+              if (a.date < b.date) {
+                return 1;
+              }
+
+              if (a.date > b.date) {
+                return -1;
+              }
+
+              return 0;
+            });
+
+          value.marketPrice = latestValue.marketPrice;
+        } catch {}
+      }
+    }
+
+    return response;
   }
 
   private containsToday(dates: Date[]): boolean {

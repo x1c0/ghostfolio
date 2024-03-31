@@ -2,20 +2,28 @@
   <router-outlet></router-outlet>
 </mat-tab-nav-panel>
 
-<nav mat-align-tabs="center" mat-tab-nav-bar [tabPanel]="tabPanel">
-  <a
-    #rla="routerLinkActive"
-    *ngFor="let link of [
-      { iconName: 'reader-outline', path: 'overview' },
-      { iconName: 'people-outline', path: 'users' },
-      { iconName: 'server-outline', path: 'market-data' },
-      { iconName: 'flash-outline', path: 'jobs' }
-    ]"
-    mat-tab-link
-    routerLinkActive
-    [active]="rla.isActive"
-    [routerLink]="link.path"
-  >
-    <ion-icon size="large" [name]="link.iconName"></ion-icon>
-  </a>
+<nav
+  mat-align-tabs="center"
+  mat-tab-nav-bar
+  [disablePagination]="true"
+  [tabPanel]="tabPanel"
+>
+  <ng-container *ngFor="let tab of tabs">
+    <a
+      #rla="routerLinkActive"
+      *ngIf="tab.showCondition !== false"
+      class="no-min-width px-3"
+      mat-tab-link
+      routerLinkActive
+      [active]="rla.isActive"
+      [routerLink]="tab.path"
+      [routerLinkActiveOptions]="{ exact: true }"
+    >
+      <ion-icon
+        [name]="tab.iconName"
+        [size]="deviceType === 'mobile' ? 'large' : 'small'"
+      />
+      <div class="d-none d-sm-block ml-2">{{ tab.label }}</div>
+    </a>
+  </ng-container>
 </nav>

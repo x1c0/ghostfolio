@@ -1,7 +1,9 @@
+import { HasPermissionGuard } from '@ghostfolio/api/guards/has-permission.guard';
 import { TransformDataSourceInRequestInterceptor } from '@ghostfolio/api/interceptors/transform-data-source-in-request.interceptor';
 import { TransformDataSourceInResponseInterceptor } from '@ghostfolio/api/interceptors/transform-data-source-in-response.interceptor';
 import { IDataProviderHistoricalResponse } from '@ghostfolio/api/services/interfaces/interfaces';
 import type { RequestWithUser } from '@ghostfolio/common/types';
+
 import {
   Controller,
   Get,
@@ -15,6 +17,7 @@ import {
 import { REQUEST } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { DataSource } from '@prisma/client';
+import { parseISO } from 'date-fns';
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
 import { isDate, isEmpty } from 'lodash';
 
@@ -33,13 +36,17 @@ export class SymbolController {
    * Must be before /:symbol
    */
   @Get('lookup')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   @UseInterceptors(TransformDataSourceInResponseInterceptor)
   public async lookupSymbol(
-    @Query() { query = '' }
+    @Query('includeIndices') includeIndicesParam = 'false',
+    @Query('query') query = ''
   ): Promise<{ items: LookupItem[] }> {
+    const includeIndices = includeIndicesParam === 'true';
+
     try {
       return this.symbolService.lookup({
+        includeIndices,
         query: query.toLowerCase(),
         user: this.request.user
       });
@@ -60,7 +67,7 @@ export class SymbolController {
   public async getSymbolData(
     @Param('dataSource') dataSource: DataSource,
     @Param('symbol') symbol: string,
-    @Query('includeHistoricalData') includeHistoricalData?: number
+    @Query('includeHistoricalData') includeHistoricalData = 0
   ): Promise<SymbolItem> {
     if (!DataSource[dataSource]) {
       throw new HttpException(
@@ -85,13 +92,13 @@ export class SymbolController {
   }
 
   @Get(':dataSource/:symbol/:dateString')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async gatherSymbolForDate(
     @Param('dataSource') dataSource: DataSource,
     @Param('dateString') dateString: string,
     @Param('symbol') symbol: string
   ): Promise<IDataProviderHistoricalResponse> {
-    const date = new Date(dateString);
+    const date = parseISO(dateString);
 
     if (!isDate(date)) {
       throw new HttpException(

@@ -1,12 +1,24 @@
 import { LookupItem } from '@ghostfolio/api/app/symbol/interfaces/lookup-item.interface';
-import { ConfigurationService } from '@ghostfolio/api/services/configuration.service';
-import { DataProviderInterface } from '@ghostfolio/api/services/data-provider/interfaces/data-provider.interface';
+import { ConfigurationService } from '@ghostfolio/api/services/configuration/configuration.service';
+import {
+  DataProviderInterface,
+  GetDividendsParams,
+  GetHistoricalParams,
+  GetQuotesParams,
+  GetSearchParams
+} from '@ghostfolio/api/services/data-provider/interfaces/data-provider.interface';
 import {
   IDataProviderHistoricalResponse,
   IDataProviderResponse
 } from '@ghostfolio/api/services/interfaces/interfaces';
-import { DATE_FORMAT } from '@ghostfolio/common/helper';
-import { Granularity } from '@ghostfolio/common/types';
+import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
+import {
+  DEFAULT_CURRENCY,
+  REPLACE_NAME_PARTS
+} from '@ghostfolio/common/config';
+import { DATE_FORMAT, isCurrency } from '@ghostfolio/common/helper';
+import { DataProviderInfo } from '@ghostfolio/common/interfaces';
+
 import { Injectable, Logger } from '@nestjs/common';
 import {
   AssetClass,
@@ -14,8 +26,9 @@ import {
   DataSource,
   SymbolProfile
 } from '@prisma/client';
-import bent from 'bent';
-import { format, isToday } from 'date-fns';
+import { addDays, format, isSameDay, isToday } from 'date-fns';
+import got from 'got';
+import { isNumber } from 'lodash';
 
 @Injectable()
 export class EodHistoricalDataService implements DataProviderInterface {
@@ -23,82 +36,149 @@ export class EodHistoricalDataService implements DataProviderInterface {
   private readonly URL = 'https://eodhistoricaldata.com/api';
 
   public constructor(
-    private readonly configurationService: ConfigurationService
+    private readonly configurationService: ConfigurationService,
+    private readonly symbolProfileService: SymbolProfileService
   ) {
-    this.apiKey = this.configurationService.get('EOD_HISTORICAL_DATA_API_KEY');
+    this.apiKey = this.configurationService.get('API_KEY_EOD_HISTORICAL_DATA');
   }
 
   public canHandle(symbol: string) {
     return true;
   }
 
-  public async getAssetProfile(
-    aSymbol: string
-  ): Promise<Partial<SymbolProfile>> {
-    const [searchResult] = await this.getSearchResult(aSymbol);
+  public async getAssetProfile({
+    symbol
+  }: {
+    symbol: string;
+  }): Promise<Partial<SymbolProfile>> {
+    const [searchResult] = await this.getSearchResult(symbol);
 
     return {
+      symbol,
       assetClass: searchResult?.assetClass,
       assetSubClass: searchResult?.assetSubClass,
       currency: this.convertCurrency(searchResult?.currency),
       dataSource: this.getName(),
       isin: searchResult?.isin,
-      name: searchResult?.name,
-      symbol: aSymbol
+      name: searchResult?.name
+    };
+  }
+
+  public getDataProviderInfo(): DataProviderInfo {
+    return {
+      isPremium: true
     };
   }
 
   public async getDividends({
     from,
-    granularity = 'day',
+    requestTimeout = this.configurationService.get('REQUEST_TIMEOUT'),
     symbol,
     to
-  }: {
-    from: Date;
-    granularity: Granularity;
-    symbol: string;
-    to: Date;
-  }) {
-    return {};
-  }
-
-  public async getHistorical(
-    aSymbol: string,
-    aGranularity: Granularity = 'day',
-    from: Date,
-    to: Date
-  ): Promise<{
-    [symbol: string]: { [date: string]: IDataProviderHistoricalResponse };
+  }: GetDividendsParams): Promise<{
+    [date: string]: IDataProviderHistoricalResponse;
   }> {
+    symbol = this.convertToEodSymbol(symbol);
+
+    if (isSameDay(from, to)) {
+      to = addDays(to, 1);
+    }
+
     try {
-      const get = bent(
-        `${this.URL}/eod/${aSymbol}?api_token=${
+      const abortController = new AbortController();
+
+      const response: {
+        [date: string]: IDataProviderHistoricalResponse;
+      } = {};
+
+      setTimeout(() => {
+        abortController.abort();
+      }, requestTimeout);
+
+      const historicalResult = await got(
+        `${this.URL}/div/${symbol}?api_token=${
           this.apiKey
         }&fmt=json&from=${format(from, DATE_FORMAT)}&to=${format(
           to,
           DATE_FORMAT
-        )}&period={aGranularity}`,
-        'GET',
-        'json',
-        200
+        )}`,
+        {
+          // @ts-ignore
+          signal: abortController.signal
+        }
+      ).json<any>();
+
+      for (const { date, value } of historicalResult) {
+        response[date] = {
+          marketPrice: value
+        };
+      }
+
+      return response;
+    } catch (error) {
+      Logger.error(
+        `Could not get dividends for ${symbol} (${this.getName()}) from ${format(
+          from,
+          DATE_FORMAT
+        )} to ${format(to, DATE_FORMAT)}: [${error.name}] ${error.message}`,
+        'EodHistoricalDataService'
       );
 
-      const response = await get();
+      return {};
+    }
+  }
+
+  public async getHistorical({
+    from,
+    granularity = 'day',
+    requestTimeout = this.configurationService.get('REQUEST_TIMEOUT'),
+    symbol,
+    to
+  }: GetHistoricalParams): Promise<{
+    [symbol: string]: { [date: string]: IDataProviderHistoricalResponse };
+  }> {
+    symbol = this.convertToEodSymbol(symbol);
+
+    try {
+      const abortController = new AbortController();
+
+      setTimeout(() => {
+        abortController.abort();
+      }, requestTimeout);
+
+      const response = await got(
+        `${this.URL}/eod/${symbol}?api_token=${
+          this.apiKey
+        }&fmt=json&from=${format(from, DATE_FORMAT)}&to=${format(
+          to,
+          DATE_FORMAT
+        )}&period=${granularity}`,
+        {
+          // @ts-ignore
+          signal: abortController.signal
+        }
+      ).json<any>();
 
       return response.reduce(
-        (result, historicalItem, index, array) => {
-          result[aSymbol][historicalItem.date] = {
-            marketPrice: historicalItem.close,
-            performance: historicalItem.open - historicalItem.close
-          };
+        (result, { close, date }, index, array) => {
+          if (isNumber(close)) {
+            result[this.convertFromEodSymbol(symbol)][date] = {
+              marketPrice: close
+            };
+          } else {
+            Logger.error(
+              `Could not get historical market data for ${symbol} (${this.getName()}) at ${date}`,
+              'EodHistoricalDataService'
+            );
+          }
 
           return result;
         },
-        { [aSymbol]: {} }
+        { [this.convertFromEodSymbol(symbol)]: {} }
       );
     } catch (error) {
       throw new Error(
-        `Could not get historical market data for ${aSymbol} (${this.getName()}) from ${format(
+        `Could not get historical market data for ${symbol} (${this.getName()}) from ${format(
           from,
           DATE_FORMAT
         )} to ${format(to, DATE_FORMAT)}: [${error.name}] ${error.message}`
@@ -116,61 +196,120 @@ export class EodHistoricalDataService implements DataProviderInterface {
     return DataSource.EOD_HISTORICAL_DATA;
   }
 
-  public async getQuotes(
-    aSymbols: string[]
-  ): Promise<{ [symbol: string]: IDataProviderResponse }> {
-    if (aSymbols.length <= 0) {
-      return {};
+  public async getQuotes({
+    requestTimeout = this.configurationService.get('REQUEST_TIMEOUT'),
+    symbols
+  }: GetQuotesParams): Promise<{ [symbol: string]: IDataProviderResponse }> {
+    let response: { [symbol: string]: IDataProviderResponse } = {};
+
+    if (symbols.length <= 0) {
+      return response;
     }
 
-    try {
-      const get = bent(
-        `${this.URL}/real-time/${aSymbols[0]}?api_token=${
-          this.apiKey
-        }&fmt=json&s=${aSymbols.join(',')}`,
-        'GET',
-        'json',
-        200
-      );
+    const eodHistoricalDataSymbols = symbols.map((symbol) => {
+      return this.convertToEodSymbol(symbol);
+    });
 
-      const [realTimeResponse, searchResponse] = await Promise.all([
-        get(),
-        this.search(aSymbols[0])
-      ]);
+    try {
+      const abortController = new AbortController();
+
+      setTimeout(() => {
+        abortController.abort();
+      }, requestTimeout);
+
+      const realTimeResponse = await got(
+        `${this.URL}/real-time/${eodHistoricalDataSymbols[0]}?api_token=${
+          this.apiKey
+        }&fmt=json&s=${eodHistoricalDataSymbols.join(',')}`,
+        {
+          // @ts-ignore
+          signal: abortController.signal
+        }
+      ).json<any>();
 
       const quotes =
-        aSymbols.length === 1 ? [realTimeResponse] : realTimeResponse;
+        eodHistoricalDataSymbols.length === 1
+          ? [realTimeResponse]
+          : realTimeResponse;
 
-      return quotes.reduce(
-        (
-          result: { [symbol: string]: IDataProviderResponse },
-          { close, code, timestamp }
-        ) => {
-          result[code] = {
-            currency: this.convertCurrency(searchResponse?.items[0]?.currency),
-            dataSource: DataSource.EOD_HISTORICAL_DATA,
+      const symbolProfiles = await this.symbolProfileService.getSymbolProfiles(
+        symbols.map((symbol) => {
+          return {
+            symbol,
+            dataSource: this.getName()
+          };
+        })
+      );
+
+      for (const { close, code, timestamp } of quotes) {
+        let currency: string;
+
+        if (code.endsWith('.FOREX')) {
+          currency = this.convertFromEodSymbol(code)?.replace(
+            DEFAULT_CURRENCY,
+            ''
+          );
+        }
+
+        if (!currency) {
+          currency = symbolProfiles.find(({ symbol }) => {
+            return symbol === code;
+          })?.currency;
+        }
+
+        if (!currency) {
+          const { items } = await this.search({ query: code });
+
+          if (items.length === 1) {
+            currency = items[0].currency;
+          }
+        }
+
+        if (isNumber(close)) {
+          response[this.convertFromEodSymbol(code)] = {
+            currency,
+            dataSource: this.getName(),
             marketPrice: close,
             marketState: isToday(new Date(timestamp * 1000)) ? 'open' : 'closed'
           };
+        } else {
+          Logger.error(
+            `Could not get quote for ${this.convertFromEodSymbol(code)} (${this.getName()})`,
+            'EodHistoricalDataService'
+          );
+        }
+      }
 
-          return result;
-        },
-        {}
-      );
+      return response;
     } catch (error) {
-      Logger.error(error, 'EodHistoricalDataService');
+      let message = error;
+
+      if (error?.code === 'ABORT_ERR') {
+        message = `RequestError: The operation to get the quotes was aborted because the request to the data provider took more than ${this.configurationService.get(
+          'REQUEST_TIMEOUT'
+        )}ms`;
+      }
+
+      Logger.error(message, 'EodHistoricalDataService');
     }
 
     return {};
   }
 
-  public async search(aQuery: string): Promise<{ items: LookupItem[] }> {
-    const searchResult = await this.getSearchResult(aQuery);
+  public getTestSymbol() {
+    return 'AAPL.US';
+  }
+
+  public async search({
+    query
+  }: GetSearchParams): Promise<{ items: LookupItem[] }> {
+    const searchResult = await this.getSearchResult(query);
 
     return {
       items: searchResult
-        .filter(({ symbol }) => {
-          return !symbol.toLowerCase().endsWith('forex');
+        .filter(({ currency, symbol }) => {
+          // Remove 'NA' currency and exchange rates
+          return currency?.length === 3 && !symbol.endsWith('.FOREX');
         })
         .map(
           ({
@@ -187,7 +326,8 @@ export class EodHistoricalDataService implements DataProviderInterface {
               dataSource,
               name,
               symbol,
-              currency: this.convertCurrency(currency)
+              currency: this.convertCurrency(currency),
+              dataProviderInfo: this.getDataProviderInfo()
             };
           }
         )
@@ -204,6 +344,54 @@ export class EodHistoricalDataService implements DataProviderInterface {
     return currency;
   }
 
+  private convertFromEodSymbol(aEodSymbol: string) {
+    let symbol = aEodSymbol;
+
+    if (symbol.endsWith('.FOREX')) {
+      symbol = symbol.replace('GBX', 'GBp');
+      symbol = symbol.replace('.FOREX', '');
+    }
+
+    return symbol;
+  }
+
+  /**
+   * Converts a symbol to a EOD symbol
+   *
+   * Currency:  USDCHF  -> USDCHF.FOREX
+   */
+  private convertToEodSymbol(aSymbol: string) {
+    if (
+      aSymbol.startsWith(DEFAULT_CURRENCY) &&
+      aSymbol.length > DEFAULT_CURRENCY.length
+    ) {
+      if (
+        isCurrency(
+          aSymbol.substring(0, aSymbol.length - DEFAULT_CURRENCY.length)
+        )
+      ) {
+        let symbol = aSymbol;
+        symbol = symbol.replace('GBp', 'GBX');
+
+        return `${symbol}.FOREX`;
+      }
+    }
+
+    return aSymbol;
+  }
+
+  private formatName({ name }: { name: string }) {
+    if (name) {
+      for (const part of REPLACE_NAME_PARTS) {
+        name = name.replace(part, '');
+      }
+
+      name = name.trim();
+    }
+
+    return name;
+  }
+
   private async getSearchResult(aQuery: string): Promise<
     (LookupItem & {
       assetClass: AssetClass;
@@ -214,13 +402,19 @@ export class EodHistoricalDataService implements DataProviderInterface {
     let searchResult = [];
 
     try {
-      const get = bent(
+      const abortController = new AbortController();
+
+      setTimeout(() => {
+        abortController.abort();
+      }, this.configurationService.get('REQUEST_TIMEOUT'));
+
+      const response = await got(
         `${this.URL}/search/${aQuery}?api_token=${this.apiKey}`,
-        'GET',
-        'json',
-        200
-      );
-      const response = await get();
+        {
+          // @ts-ignore
+          signal: abortController.signal
+        }
+      ).json<any>();
 
       searchResult = response.map(
         ({ Code, Currency, Exchange, ISIN: isin, Name: name, Type }) => {
@@ -233,15 +427,23 @@ export class EodHistoricalDataService implements DataProviderInterface {
             assetClass,
             assetSubClass,
             isin,
-            name,
             currency: this.convertCurrency(Currency),
             dataSource: this.getName(),
+            name: this.formatName({ name }),
             symbol: `${Code}.${Exchange}`
           };
         }
       );
     } catch (error) {
-      Logger.error(error, 'EodHistoricalDataService');
+      let message = error;
+
+      if (error?.code === 'ABORT_ERR') {
+        message = `RequestError: The operation to search for ${aQuery} was aborted because the request to the data provider took more than ${this.configurationService.get(
+          'REQUEST_TIMEOUT'
+        )}ms`;
+      }
+
+      Logger.error(message, 'EodHistoricalDataService');
     }
 
     return searchResult;

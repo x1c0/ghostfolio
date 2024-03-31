@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:16-slim as builder
+FROM --platform=$BUILDPLATFORM node:18-slim as builder
 
 # Build application and add additional files
 WORKDIR /ghostfolio
@@ -13,8 +13,8 @@ COPY ./.yarnrc .yarnrc
 COPY ./prisma/schema.prisma prisma/schema.prisma
 
 RUN apt update && apt install -y \
-    git \
     g++ \
+    git \
     make \
     openssl \
     python3 \
@@ -33,7 +33,7 @@ COPY ./tsconfig.base.json tsconfig.base.json
 COPY ./libs libs
 COPY ./apps apps
 
-RUN yarn build:all
+RUN yarn build:production
 
 # Prepare the dist image with additional node_modules
 WORKDIR /ghostfolio/dist/apps/api
@@ -50,12 +50,21 @@ COPY package.json /ghostfolio/dist/apps/api
 RUN yarn database:generate-typings
 
 # Image to run, copy everything needed from builder
-FROM node:16-slim
+FROM node:18-slim
 RUN apt update && apt install -y \
+    curl \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
+# Add tini, which is an init process that handles signaling within the container
+# and with the host. See https://github.com/krallin/tini
+ENV TINI_VERSION v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+ENTRYPOINT ["/tini", "--"]
+
 COPY --from=builder /ghostfolio/dist/apps /ghostfolio/apps
+COPY ./docker/entrypoint.sh /ghostfolio/entrypoint.sh
 WORKDIR /ghostfolio/apps/api
 EXPOSE ${PORT:-3333}
-CMD [  "yarn", "start:prod" ]
+CMD [ "/ghostfolio/entrypoint.sh" ]

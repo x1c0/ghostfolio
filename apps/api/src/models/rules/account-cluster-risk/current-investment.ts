@@ -1,21 +1,24 @@
 import { RuleSettings } from '@ghostfolio/api/models/interfaces/rule-settings.interface';
-import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data.service';
+import { Rule } from '@ghostfolio/api/models/rule';
+import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
 import {
   PortfolioDetails,
   PortfolioPosition,
   UserSettings
 } from '@ghostfolio/common/interfaces';
 
-import { Rule } from '../../rule';
-
 export class AccountClusterRiskCurrentInvestment extends Rule<Settings> {
+  private accounts: PortfolioDetails['accounts'];
+
   public constructor(
     protected exchangeRateDataService: ExchangeRateDataService,
-    private accounts: PortfolioDetails['accounts']
+    accounts: PortfolioDetails['accounts']
   ) {
     super(exchangeRateDataService, {
-      name: 'Current Investment'
+      name: 'Investment'
     });
+
+    this.accounts = accounts;
   }
 
   public evaluate(ruleSettings: Settings) {
@@ -28,11 +31,11 @@ export class AccountClusterRiskCurrentInvestment extends Rule<Settings> {
     for (const [accountId, account] of Object.entries(this.accounts)) {
       accounts[accountId] = {
         name: account.name,
-        investment: account.current
+        investment: account.valueInBaseCurrency
       };
     }
 
-    let maxItem;
+    let maxItem: (typeof accounts)[0];
     let totalInvestment = 0;
 
     for (const account of Object.values(accounts)) {
@@ -49,7 +52,7 @@ export class AccountClusterRiskCurrentInvestment extends Rule<Settings> {
       }
     }
 
-    const maxInvestmentRatio = maxItem.investment / totalInvestment;
+    const maxInvestmentRatio = maxItem?.investment / totalInvestment || 0;
 
     if (maxInvestmentRatio > ruleSettings.threshold) {
       return {

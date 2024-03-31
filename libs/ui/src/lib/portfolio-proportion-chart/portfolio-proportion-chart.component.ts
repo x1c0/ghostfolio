@@ -1,3 +1,10 @@
+import { getTooltipOptions } from '@ghostfolio/common/chart-helper';
+import { UNKNOWN_KEY } from '@ghostfolio/common/config';
+import { getLocale, getTextColor } from '@ghostfolio/common/helper';
+import { PortfolioPosition, UniqueAsset } from '@ghostfolio/common/interfaces';
+import { ColorScheme } from '@ghostfolio/common/types';
+import { translate } from '@ghostfolio/ui/i18n';
+
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -10,14 +17,8 @@ import {
   Output,
   ViewChild
 } from '@angular/core';
-import { getTooltipOptions } from '@ghostfolio/common/chart-helper';
-import { UNKNOWN_KEY } from '@ghostfolio/common/config';
-import { getTextColor } from '@ghostfolio/common/helper';
-import { PortfolioPosition, UniqueAsset } from '@ghostfolio/common/interfaces';
-import { ColorScheme } from '@ghostfolio/common/types';
-import { translate } from '@ghostfolio/ui/i18n';
 import { DataSource } from '@prisma/client';
-import Big from 'big.js';
+import { Big } from 'big.js';
 import { ChartConfiguration, Tooltip } from 'chart.js';
 import { LinearScale } from 'chart.js';
 import { ArcElement } from 'chart.js';
@@ -40,7 +41,7 @@ export class PortfolioProportionChartComponent
   @Input() cursor: string;
   @Input() isInPercent = false;
   @Input() keys: string[] = [];
-  @Input() locale = '';
+  @Input() locale = getLocale();
   @Input() maxItems?: number;
   @Input() showLabels = false;
   @Input() positions: {
@@ -90,7 +91,7 @@ export class PortfolioProportionChartComponent
       [symbol: string]: {
         color?: string;
         name: string;
-        subCategory: { [symbol: string]: { value: Big } };
+        subCategory?: { [symbol: string]: { value: Big } };
         value: Big;
       };
     } = {};
@@ -99,61 +100,76 @@ export class PortfolioProportionChartComponent
       [UNKNOWN_KEY]: `rgba(${getTextColor(this.colorScheme)}, 0.12)`
     };
 
-    Object.keys(this.positions).forEach((symbol) => {
-      if (this.positions[symbol][this.keys[0]]) {
-        if (chartData[this.positions[symbol][this.keys[0]]]) {
-          chartData[this.positions[symbol][this.keys[0]]].value = chartData[
-            this.positions[symbol][this.keys[0]]
-          ].value.plus(this.positions[symbol].value);
-
-          if (
-            chartData[this.positions[symbol][this.keys[0]]].subCategory[
-              this.positions[symbol][this.keys[1]]
-            ]
-          ) {
-            chartData[this.positions[symbol][this.keys[0]]].subCategory[
-              this.positions[symbol][this.keys[1]]
+    if (this.keys.length > 0) {
+      Object.keys(this.positions).forEach((symbol) => {
+        if (this.positions[symbol][this.keys[0]]?.toUpperCase()) {
+          if (chartData[this.positions[symbol][this.keys[0]].toUpperCase()]) {
+            chartData[
+              this.positions[symbol][this.keys[0]].toUpperCase()
             ].value = chartData[
-              this.positions[symbol][this.keys[0]]
-            ].subCategory[this.positions[symbol][this.keys[1]]].value.plus(
+              this.positions[symbol][this.keys[0]].toUpperCase()
+            ].value.plus(this.positions[symbol].value);
+
+            if (
+              chartData[this.positions[symbol][this.keys[0]].toUpperCase()]
+                .subCategory[this.positions[symbol][this.keys[1]]]
+            ) {
+              chartData[
+                this.positions[symbol][this.keys[0]].toUpperCase()
+              ].subCategory[this.positions[symbol][this.keys[1]]].value =
+                chartData[
+                  this.positions[symbol][this.keys[0]].toUpperCase()
+                ].subCategory[this.positions[symbol][this.keys[1]]].value.plus(
+                  this.positions[symbol].value
+                );
+            } else {
+              chartData[
+                this.positions[symbol][this.keys[0]].toUpperCase()
+              ].subCategory[
+                this.positions[symbol][this.keys[1]] ?? UNKNOWN_KEY
+              ] = { value: new Big(this.positions[symbol].value) };
+            }
+          } else {
+            chartData[this.positions[symbol][this.keys[0]].toUpperCase()] = {
+              name: this.positions[symbol][this.keys[0]],
+              subCategory: {},
+              value: new Big(this.positions[symbol].value ?? 0)
+            };
+
+            if (this.positions[symbol][this.keys[1]]) {
+              chartData[
+                this.positions[symbol][this.keys[0]].toUpperCase()
+              ].subCategory = {
+                [this.positions[symbol][this.keys[1]]]: {
+                  value: new Big(this.positions[symbol].value)
+                }
+              };
+            }
+          }
+        } else {
+          if (chartData[UNKNOWN_KEY]) {
+            chartData[UNKNOWN_KEY].value = chartData[UNKNOWN_KEY].value.plus(
               this.positions[symbol].value
             );
           } else {
-            chartData[this.positions[symbol][this.keys[0]]].subCategory[
-              this.positions[symbol][this.keys[1]] ?? UNKNOWN_KEY
-            ] = { value: new Big(this.positions[symbol].value) };
-          }
-        } else {
-          chartData[this.positions[symbol][this.keys[0]]] = {
-            name: this.positions[symbol].name,
-            subCategory: {},
-            value: new Big(this.positions[symbol].value ?? 0)
-          };
-
-          if (this.positions[symbol][this.keys[1]]) {
-            chartData[this.positions[symbol][this.keys[0]]].subCategory = {
-              [this.positions[symbol][this.keys[1]]]: {
-                value: new Big(this.positions[symbol].value)
-              }
+            chartData[UNKNOWN_KEY] = {
+              name: this.positions[symbol].name,
+              subCategory: this.keys[1]
+                ? { [this.keys[1]]: { value: new Big(0) } }
+                : undefined,
+              value: new Big(this.positions[symbol].value)
             };
           }
         }
-      } else {
-        if (chartData[UNKNOWN_KEY]) {
-          chartData[UNKNOWN_KEY].value = chartData[UNKNOWN_KEY].value.plus(
-            this.positions[symbol].value
-          );
-        } else {
-          chartData[UNKNOWN_KEY] = {
-            name: this.positions[symbol].name,
-            subCategory: this.keys[1]
-              ? { [this.keys[1]]: { value: new Big(0) } }
-              : undefined,
-            value: new Big(this.positions[symbol].value)
-          };
-        }
-      }
-    });
+      });
+    } else {
+      Object.keys(this.positions).forEach((symbol) => {
+        chartData[symbol] = {
+          name: this.positions[symbol].name,
+          value: new Big(this.positions[symbol].value)
+        };
+      });
+    }
 
     let chartDataSorted = Object.entries(chartData)
       .sort((a, b) => {
@@ -232,8 +248,8 @@ export class PortfolioProportionChartComponent
       }
     ];
 
-    let labels = chartDataSorted.map(([label]) => {
-      return label;
+    let labels = chartDataSorted.map(([symbol, { name }]) => {
+      return name;
     });
 
     if (this.keys[1]) {
@@ -394,6 +410,9 @@ export class PortfolioProportionChartComponent
               })} ${this.baseCurrency} (${percentage.toFixed(2)}%)`
             ];
           }
+        },
+        title: () => {
+          return '';
         }
       }
     };

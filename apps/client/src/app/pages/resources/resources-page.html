@@ -1,8 +1,25 @@
 <div class="container">
   <div class="row">
     <div class="col">
-      <h1 class="d-none d-sm-block h3 mb-3 text-center" i18n>Resources</h1>
-      <h2 class="h4 mb-3">Guides</h2>
+      <h1 class="d-none d-sm-block h3 mb-4 text-center" i18n>Resources</h1>
+      <h2 class="h4 mb-3">Ghostfolio</h2>
+      <div class="mb-5">
+        <div class="mb-4 media">
+          <div class="media-body">
+            <h3 class="h5 mt-0">Frequently Asked Questions (FAQ)</h3>
+            <div class="mb-1">
+              Find quick answers to commonly asked questions about Ghostfolio in
+              our Frequently Asked Questions (FAQ) section.
+            </div>
+            <div>
+              <a [routerLink]="routerLinkFaq"
+                >Frequently Asked Questions (FAQ) →</a
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+      <h2 class="h4 mb-3" i18n>Guides</h2>
       <div class="mb-5">
         <div class="mb-4 media">
           <div class="media-body">
@@ -36,7 +53,7 @@
           </div>
         </div>
       </div>
-      <h2 class="h4 mb-3">Market</h2>
+      <h2 class="h4 mb-3" i18n>Markets</h2>
       <div class="mb-5">
         <div class="mb-4 media">
           <div class="media-body">
@@ -72,7 +89,7 @@
           </div>
         </div>
       </div>
-      <h2 class="h4 mb-3">Glossary</h2>
+      <h2 class="h4 mb-3" i18n>Glossary</h2>
       <div>
         <div class="mb-4 media">
           <div class="media-body">
@@ -144,6 +161,18 @@
         </div>
         <div class="mb-4 media">
           <div class="media-body">
+            <h3 class="h5 mt-0">FIRE</h3>
+            <div class="mb-1">
+              FIRE is a movement that promotes saving and investing to achieve
+              financial independence and early retirement.
+            </div>
+            <div>
+              <a href="../en/blog/2023/07/exploring-the-path-to-fire">FIRE →</a>
+            </div>
+          </div>
+        </div>
+        <div class="mb-4 media">
+          <div class="media-body">
             <h3 class="h5 mt-0">Inflation</h3>
             <div class="mb-1">
               Inflation is an increase of the general price level for goods and
@@ -158,6 +187,23 @@
             </div>
           </div>
         </div>
+        @if (hasPermissionForSubscription) {
+          <div class="mb-4 media">
+            <div class="media-body">
+              <h3 class="h5 mt-0">Personal Finance Tools</h3>
+              <div class="mb-1">
+                Personal finance tools are software applications that help
+                individuals manage their money, track expenses, set budgets,
+                monitor investments, and make informed financial decisions.
+              </div>
+              <div>
+                <a [routerLink]="routerLinkResourcesPersonalFinanceTools"
+                  >Personal Finance Tools →</a
+                >
+              </div>
+            </div>
+          </div>
+        }
         <div class="mb-4 media">
           <div class="media-body">
             <h3 class="h5 mt-0">Stagflation</h3>

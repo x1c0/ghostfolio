@@ -1,4 +1,19 @@
-import 'chartjs-adapter-date-fns';
+import {
+  getTooltipOptions,
+  getTooltipPositionerMapTop,
+  getVerticalHoverLinePlugin
+} from '@ghostfolio/common/chart-helper';
+import { primaryColorRgb, secondaryColorRgb } from '@ghostfolio/common/config';
+import {
+  getBackgroundColor,
+  getDateFormatString,
+  getLocale,
+  getTextColor,
+  parseDate
+} from '@ghostfolio/common/helper';
+import { LineChartItem, User } from '@ghostfolio/common/interfaces';
+import { hasPermission, permissions } from '@ghostfolio/common/permissions';
+import { ColorScheme } from '@ghostfolio/common/types';
 
 import {
   ChangeDetectionStrategy,
@@ -10,20 +25,6 @@ import {
   Output,
   ViewChild
 } from '@angular/core';
-import {
-  getTooltipOptions,
-  getTooltipPositionerMapTop,
-  getVerticalHoverLinePlugin
-} from '@ghostfolio/common/chart-helper';
-import { primaryColorRgb, secondaryColorRgb } from '@ghostfolio/common/config';
-import {
-  getBackgroundColor,
-  getDateFormatString,
-  getTextColor,
-  parseDate
-} from '@ghostfolio/common/helper';
-import { LineChartItem, User } from '@ghostfolio/common/interfaces';
-import { ColorScheme } from '@ghostfolio/common/types';
 import { SymbolProfile } from '@prisma/client';
 import {
   Chart,
@@ -35,6 +36,7 @@ import {
   TimeScale,
   Tooltip
 } from 'chart.js';
+import 'chartjs-adapter-date-fns';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 @Component({
@@ -44,13 +46,13 @@ import annotationPlugin from 'chartjs-plugin-annotation';
   styleUrls: ['./benchmark-comparator.component.scss']
 })
 export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
+  @Input() benchmark: Partial<SymbolProfile>;
   @Input() benchmarkDataItems: LineChartItem[] = [];
-  @Input() benchmark: string;
   @Input() benchmarks: Partial<SymbolProfile>[];
   @Input() colorScheme: ColorScheme;
   @Input() daysInMarket: number;
   @Input() isLoading: boolean;
-  @Input() locale: string;
+  @Input() locale = getLocale();
   @Input() performanceDataItems: LineChartItem[];
   @Input() user: User;
 
@@ -59,6 +61,7 @@ export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
   @ViewChild('chartCanvas') chartCanvas;
 
   public chart: Chart<'line'>;
+  public hasPermissionToAccessAdminControl: boolean;
 
   public constructor() {
     Chart.register(
@@ -76,6 +79,11 @@ export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
   }
 
   public ngOnChanges() {
+    this.hasPermissionToAccessAdminControl = hasPermission(
+      this.user?.permissions,
+      permissions.accessAdminControl
+    );
+
     if (this.performanceDataItems) {
       this.initialize();
     }
@@ -90,6 +98,12 @@ export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
   }
 
   private initialize() {
+    const benchmarkDataValues: { [date: string]: number } = {};
+
+    for (const { date, value } of this.benchmarkDataItems) {
+      benchmarkDataValues[date] = value;
+    }
+
     const data: ChartData<'line'> = {
       datasets: [
         {
@@ -105,10 +119,13 @@ export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
           backgroundColor: `rgb(${secondaryColorRgb.r}, ${secondaryColorRgb.g}, ${secondaryColorRgb.b})`,
           borderColor: `rgb(${secondaryColorRgb.r}, ${secondaryColorRgb.g}, ${secondaryColorRgb.b})`,
           borderWidth: 2,
-          data: this.benchmarkDataItems.map(({ date, value }) => {
-            return { x: parseDate(date).getTime(), y: value };
+          data: this.performanceDataItems.map(({ date }) => {
+            return {
+              x: parseDate(date).getTime(),
+              y: benchmarkDataValues[date]
+            };
           }),
-          label: $localize`Benchmark`
+          label: this.benchmark?.name ?? $localize`Benchmark`
         }
       ]
     };
@@ -220,7 +237,7 @@ export class BenchmarkComparatorComponent implements OnChanges, OnDestroy {
         locale: this.locale,
         unit: '%'
       }),
-      mode: 'x',
+      mode: 'index',
       position: <unknown>'top',
       xAlign: 'center',
       yAlign: 'bottom'

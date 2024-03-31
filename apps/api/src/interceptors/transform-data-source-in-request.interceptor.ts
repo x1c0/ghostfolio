@@ -1,13 +1,14 @@
+import { ConfigurationService } from '@ghostfolio/api/services/configuration/configuration.service';
 import { decodeDataSource } from '@ghostfolio/common/helper';
+
 import {
   CallHandler,
   ExecutionContext,
   Injectable,
   NestInterceptor
 } from '@nestjs/common';
+import { DataSource } from '@prisma/client';
 import { Observable } from 'rxjs';
-
-import { ConfigurationService } from '../services/configuration.service';
 
 @Injectable()
 export class TransformDataSourceInRequestInterceptor<T>
@@ -25,11 +26,24 @@ export class TransformDataSourceInRequestInterceptor<T>
     const request = http.getRequest();
 
     if (this.configurationService.get('ENABLE_FEATURE_SUBSCRIPTION')) {
-      if (request.body.dataSource) {
+      if (request.body.activities) {
+        request.body.activities = request.body.activities.map((activity) => {
+          if (DataSource[activity.dataSource]) {
+            return activity;
+          } else {
+            return {
+              ...activity,
+              dataSource: decodeDataSource(activity.dataSource)
+            };
+          }
+        });
+      }
+
+      if (request.body.dataSource && !DataSource[request.body.dataSource]) {
         request.body.dataSource = decodeDataSource(request.body.dataSource);
       }
 
-      if (request.params.dataSource) {
+      if (request.params.dataSource && !DataSource[request.params.dataSource]) {
         request.params.dataSource = decodeDataSource(request.params.dataSource);
       }
     }

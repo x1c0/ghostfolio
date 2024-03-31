@@ -1,3 +1,11 @@
+import { UserService } from '@ghostfolio/client/services/user/user.service';
+import {
+  DATE_FORMAT,
+  getDateFormatString,
+  getLocale
+} from '@ghostfolio/common/helper';
+import { LineChartItem, User } from '@ghostfolio/common/interfaces';
+
 import {
   ChangeDetectionStrategy,
   Component,
@@ -8,25 +16,20 @@ import {
   Output
 } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
-import { UserService } from '@ghostfolio/client/services/user/user.service';
-import {
-  DATE_FORMAT,
-  getDateFormatString,
-  getLocale
-} from '@ghostfolio/common/helper';
-import { LineChartItem, User } from '@ghostfolio/common/interfaces';
 import { DataSource, MarketData } from '@prisma/client';
 import {
   addDays,
+  addMonths,
   format,
   isBefore,
   isSameDay,
   isToday,
   isValid,
+  min,
   parse,
   parseISO
 } from 'date-fns';
-import { last } from 'lodash';
+import { first, last } from 'lodash';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { Subject, takeUntil } from 'rxjs';
 
@@ -83,10 +86,10 @@ export class AdminMarketDataDetailComponent implements OnChanges, OnInit {
   public ngOnChanges() {
     this.defaultDateFormat = getDateFormatString(this.locale);
 
-    this.historicalDataItems = this.marketData.map((marketDataItem) => {
+    this.historicalDataItems = this.marketData.map(({ date, marketPrice }) => {
       return {
-        date: format(marketDataItem.date, DATE_FORMAT),
-        value: marketDataItem.marketPrice
+        date: format(date, DATE_FORMAT),
+        value: marketPrice
       };
     });
 
@@ -134,6 +137,27 @@ export class AdminMarketDataDetailComponent implements OnChanges, OnInit {
         marketPrice: marketDataItem.marketPrice
       };
     }
+
+    if (this.dateOfFirstActivity) {
+      // Fill up missing months
+      const dates = Object.keys(this.marketDataByMonth).sort();
+      const startDate = min([
+        parseISO(this.dateOfFirstActivity),
+        parseISO(first(dates))
+      ]);
+      const endDate = parseISO(last(dates));
+
+      let currentDate = startDate;
+
+      while (isBefore(currentDate, endDate)) {
+        const key = format(currentDate, 'yyyy-MM');
+        if (!this.marketDataByMonth[key]) {
+          this.marketDataByMonth[key] = {};
+        }
+
+        currentDate = addMonths(currentDate, 1);
+      }
+    }
   }
 
   public isDateOfInterest(aDateString: string) {
@@ -154,19 +178,14 @@ export class AdminMarketDataDetailComponent implements OnChanges, OnInit {
     day: string;
     yearMonth: string;
   }) {
-    const date = new Date(`${yearMonth}-${day}`);
     const marketPrice = this.marketDataByMonth[yearMonth]?.[day]?.marketPrice;
-
-    if (isSameDay(date, new Date())) {
-      return;
-    }
 
     const dialogRef = this.dialog.open(MarketDataDetailDialog, {
       data: <MarketDataDetailDialogParams>{
-        date,
         marketPrice,
         currency: this.currency,
         dataSource: this.dataSource,
+        dateString: `${yearMonth}-${day}`,
         symbol: this.symbol,
         user: this.user
       },
@@ -177,7 +196,7 @@ export class AdminMarketDataDetailComponent implements OnChanges, OnInit {
     dialogRef
       .afterClosed()
       .pipe(takeUntil(this.unsubscribeSubject))
-      .subscribe(({ withRefresh }) => {
+      .subscribe(({ withRefresh } = { withRefresh: false }) => {
         this.marketDataChanged.next(withRefresh);
       });
   }

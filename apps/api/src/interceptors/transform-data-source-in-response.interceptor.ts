@@ -1,5 +1,7 @@
 import { redactAttributes } from '@ghostfolio/api/helper/object.helper';
+import { ConfigurationService } from '@ghostfolio/api/services/configuration/configuration.service';
 import { encodeDataSource } from '@ghostfolio/common/helper';
+
 import {
   CallHandler,
   ExecutionContext,
@@ -9,8 +11,6 @@ import {
 import { DataSource } from '@prisma/client';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
-
-import { ConfigurationService } from '../services/configuration.service';
 
 @Injectable()
 export class TransformDataSourceInResponseInterceptor<T>

@@ -1,17 +1,20 @@
 import { RuleSettings } from '@ghostfolio/api/models/interfaces/rule-settings.interface';
-import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data.service';
+import { Rule } from '@ghostfolio/api/models/rule';
+import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
 import { TimelinePosition, UserSettings } from '@ghostfolio/common/interfaces';
 
-import { Rule } from '../../rule';
-
 export class CurrencyClusterRiskBaseCurrencyCurrentInvestment extends Rule<Settings> {
+  private positions: TimelinePosition[];
+
   public constructor(
     protected exchangeRateDataService: ExchangeRateDataService,
-    private positions: TimelinePosition[]
+    positions: TimelinePosition[]
   ) {
     super(exchangeRateDataService, {
-      name: 'Current Investment: Base Currency'
+      name: 'Investment: Base Currency'
     });
+
+    this.positions = positions;
   }
 
   public evaluate(ruleSettings: Settings) {
@@ -40,7 +43,7 @@ export class CurrencyClusterRiskBaseCurrencyCurrentInvestment extends Rule<Setti
 
     const baseCurrencyValueRatio = baseCurrencyItem?.value / totalValue || 0;
 
-    if (maxItem.groupKey !== ruleSettings.baseCurrency) {
+    if (maxItem?.groupKey !== ruleSettings.baseCurrency) {
       return {
         evaluation: `The major part of your current investment is not in your base currency (${(
           baseCurrencyValueRatio * 100

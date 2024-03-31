@@ -1,6 +1,7 @@
+import { AuthGuard } from '@ghostfolio/client/core/auth.guard';
+
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
-import { AuthGuard } from '@ghostfolio/client/core/auth.guard';
 
 import { PortfolioPageComponent } from './portfolio-page.component';
 
@@ -8,9 +9,8 @@ const routes: Routes = [
   {
     canActivate: [AuthGuard],
     children: [
-      { path: '', redirectTo: 'analysis', pathMatch: 'full' },
       {
-        path: 'analysis',
+        path: '',
         loadChildren: () =>
           import('./analysis/analysis-page.module').then(
             (m) => m.AnalysisPageModule

@@ -1,4 +1,5 @@
-import { ConfigurationService } from '@ghostfolio/api/services/configuration.service';
+import { HasPermissionGuard } from '@ghostfolio/api/guards/has-permission.guard';
+import { ConfigurationService } from '@ghostfolio/api/services/configuration/configuration.service';
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import {
   DEFAULT_LANGUAGE_CODE,
@@ -6,6 +7,7 @@ import {
 } from '@ghostfolio/common/config';
 import { Coupon } from '@ghostfolio/common/interfaces';
 import type { RequestWithUser } from '@ghostfolio/common/types';
+
 import {
   Body,
   Controller,
@@ -37,7 +39,7 @@ export class SubscriptionController {
 
   @Post('redeem-coupon')
   @HttpCode(StatusCodes.OK)
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async redeemCoupon(@Body() { couponCode }: { couponCode: string }) {
     if (!this.request.user) {
       throw new HttpException(
@@ -104,17 +106,17 @@ export class SubscriptionController {
     response.redirect(
       `${this.configurationService.get(
         'ROOT_URL'
-      )}/${DEFAULT_LANGUAGE_CODE}/account`
+      )}/${DEFAULT_LANGUAGE_CODE}/account/membership`
     );
   }
 
   @Post('stripe/checkout-session')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async createCheckoutSession(
     @Body() { couponId, priceId }: { couponId: string; priceId: string }
   ) {
     try {
-      return await this.subscriptionService.createCheckoutSession({
+      return this.subscriptionService.createCheckoutSession({
         couponId,
         priceId,
         user: this.request.user
